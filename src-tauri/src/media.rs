@@ -183,7 +183,19 @@ pub async fn remux(
         "-i",
     ])
     .arg(input)
-    .args(["-map", "0", "-map_metadata", "0", "-c", "copy"]);
+    .args([
+        "-map",
+        "0",
+        "-map_metadata",
+        "0",
+        "-c",
+        "copy",
+        // Preserve the timeline used by chapters, including nonzero starts.
+        // FFmpeg 6 otherwise normalizes MKV timestamps while remuxing.
+        "-copyts",
+        "-avoid_negative_ts",
+        "disabled",
+    ]);
     cmd.arg("-map_chapters")
         .arg(if settings.remove_chapters { "-1" } else { "0" });
     // QuickTime chapter tracks are regenerated from -map_chapters. Mapping
@@ -493,7 +505,9 @@ pub fn verify_output(
                     let time = |v: &Value| v[key].as_str().and_then(|s| s.parse::<f64>().ok());
                     if let (Some(x), Some(y)) = (time(a), time(b)) {
                         if (x - y).abs() > 0.01 {
-                            return Err("出力でチャプターの時刻が変わりました".into());
+                            return Err(format!(
+                                "出力でチャプターの時刻が変わりました（{key}: 元 {x:.3}秒 / 出力 {y:.3}秒）"
+                            ));
                         }
                     }
                 }
@@ -671,6 +685,84 @@ pub async fn process_item(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn remux_preserves_nonzero_start_and_chapter_timeline() {
+        let settings = Settings {
+            ffmpeg_path: tool("ffmpeg"),
+            ffprobe_path: tool("ffprobe"),
+            ..Default::default()
+        };
+        if tool_version(&settings.ffmpeg_path).await.is_err()
+            || tool_version(&settings.ffprobe_path).await.is_err()
+        {
+            eprintln!("SKIPPED: FFmpeg/ffprobe are not installed");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("offset.mkv");
+        let output = dir.path().join("output.mkv");
+        let metadata = dir.path().join("chapters.txt");
+        std::fs::write(
+            &metadata,
+            ";FFMETADATA1\n[CHAPTER]\nTIMEBASE=1/1000\nSTART=5000\nEND=5900\ntitle=Offset\n",
+        )
+        .unwrap();
+        assert!(command(&settings.ffmpeg_path)
+            .args([
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=s=64x64:d=1",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=1",
+                "-i"
+            ])
+            .arg(&metadata)
+            .args([
+                "-map",
+                "0",
+                "-map",
+                "1",
+                "-map_chapters",
+                "2",
+                "-c:v",
+                "mpeg4",
+                "-c:a",
+                "aac",
+                "-output_ts_offset",
+                "5"
+            ])
+            .arg(&input)
+            .status()
+            .await
+            .unwrap()
+            .success());
+        let original = std::fs::read(&input).unwrap();
+        let source = probe(&settings.ffprobe_path, &input).await.unwrap();
+        let mut plan = test_plan(&input, &output, true);
+        plan.settings = settings.clone();
+        process_item(
+            &plan,
+            &plan.preview.rows[0],
+            Arc::new(Cancellation::default()),
+            Arc::new(|_| {}),
+            Arc::new(|_, _| Ok(())),
+        )
+        .await
+        .unwrap();
+        let dest = probe(&settings.ffprobe_path, &output).await.unwrap();
+        verify_output(&source, &dest, &BTreeMap::new(), &settings).unwrap();
+        assert_eq!(source["chapters"], dest["chapters"]);
+        let start = finite_seconds(&source["format"]["start_time"]).unwrap();
+        assert!(start > 4.9);
+        assert!((start - finite_seconds(&dest["format"]["start_time"]).unwrap()).abs() < 0.001);
+        assert_eq!(original, std::fs::read(input).unwrap());
+    }
+
     #[test]
     fn duration_verification_uses_retained_tracks_and_rejects_truncation() {
         let source = serde_json::json!({
