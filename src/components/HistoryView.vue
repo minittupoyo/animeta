@@ -22,10 +22,19 @@ import {
 } from '@/components/ui/dialog';
 import { api, reveal } from '@/lib/api';
 import { useAppStore } from '@/stores/app';
-import { statusLabels } from '@/lib/types';
+import { statusLabels, type JobSnapshot, type ItemResult } from '@/lib/types';
 const store = useAppStore();
 const expanded = ref<string | null>(null);
 const clearing = ref(false);
+const restoring = ref<{ job: JobSnapshot; item: ItemResult } | null>(null);
+async function restore() {
+  if (!restoring.value) return;
+  await store.restoreFilename(
+    restoring.value.job.id,
+    restoring.value.item.row.fileId,
+  );
+  restoring.value = null;
+}
 onMounted(() => store.refreshHistory());
 async function clear() {
   await store.perform(async () => {
@@ -156,13 +165,38 @@ async function clear() {
               size="icon"
               :aria-label="`${item.row.outputName}をフォルダで表示`"
               @click="
-                reveal(item.row.outputPath).catch(
-                  (e) => (store.error = String(e)),
-                )
+                reveal(
+                  item.nameRestore?.state === 'restored'
+                    ? item.row.inputPath
+                    : item.row.outputPath,
+                ).catch((e) => (store.error = String(e)))
               "
               ><FolderOpen class="size-4"
             /></Button>
+            <Button
+              v-if="
+                job.outputMode === 'replace' &&
+                item.status === 'success' &&
+                item.nameRestore?.state === 'available'
+              "
+              variant="outline"
+              size="sm"
+              :disabled="store.locked"
+              @click="restoring = { job, item }"
+              >元のファイル名に戻す</Button
+            >
+            <Badge
+              v-if="item.nameRestore?.state === 'restored'"
+              variant="outline"
+              >名前を復元済み</Badge
+            >
           </div>
+          <p
+            v-if="item.nameRestore?.state === 'pending'"
+            class="text-xs text-destructive mt-2"
+          >
+            名前の復元が中断されました。元の名前と処理後の名前のファイルを確認してください。
+          </p>
           <p
             v-if="item.error || item.row.errors.length"
             class="text-xs text-destructive mt-2 whitespace-pre-line"
@@ -198,7 +232,7 @@ async function clear() {
       ><DialogHeader
         ><DialogTitle>処理履歴を削除しますか？</DialogTitle
         ><DialogDescription
-          >すべての履歴を削除します。元動画や出力済みの動画には影響しません。</DialogDescription
+          >すべての履歴とファイル名の復元情報を削除します。動画ファイルは保持されます。</DialogDescription
         ></DialogHeader
       ><DialogFooter
         ><Button variant="outline" @click="clearing = false">キャンセル</Button
@@ -208,4 +242,31 @@ async function clear() {
       ></DialogContent
     ></Dialog
   >
+  <Dialog
+    :open="!!restoring"
+    @update:open="
+      (open) => {
+        if (!open) restoring = null;
+      }
+    "
+  >
+    <DialogContent>
+      <DialogHeader>
+        <DialogTitle>元のファイル名に戻しますか？</DialogTitle>
+        <DialogDescription
+          >ファイル名だけを戻します。タグや字幕・チャプターの変更は保持されます。</DialogDescription
+        >
+      </DialogHeader>
+      <p class="text-sm break-all">
+        {{ restoring?.item.row.outputName }} →
+        {{ restoring?.item.row.inputName }}
+      </p>
+      <DialogFooter>
+        <Button variant="outline" @click="restoring = null">キャンセル</Button>
+        <Button :disabled="store.locked" @click="restore"
+          >元のファイル名に戻す</Button
+        >
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
 </template>

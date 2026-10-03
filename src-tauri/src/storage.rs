@@ -144,11 +144,13 @@ mod tests {
             work,
             items: vec![
                 crate::models::ItemResult {
+                    name_restore: None,
                     row: row.clone(),
                     status: "success".into(),
                     error: None,
                 },
                 crate::models::ItemResult {
+                    name_restore: None,
                     row,
                     status: "pending".into(),
                     error: None,

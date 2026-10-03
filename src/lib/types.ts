@@ -66,6 +66,10 @@ export interface PlanRequest {
   settings: Settings;
 }
 export interface ItemResult {
+  nameRestore?: {
+    file: ImportedFile;
+    state: 'available' | 'pending' | 'restored';
+  } | null;
   row: PreviewRow;
   status: string;
   error: string | null;

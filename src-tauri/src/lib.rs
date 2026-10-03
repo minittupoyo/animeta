@@ -2,6 +2,7 @@ mod annict;
 mod media;
 mod models;
 mod naming;
+mod restore;
 mod storage;
 
 use models::*;
@@ -594,6 +595,47 @@ fn clear_history(state: State<AppState>) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn restore_filename(
+    state: State<AppState>,
+    job_id: String,
+    file_id: String,
+) -> Result<ImportedFile, String> {
+    // Hold the job lock through restoration so a new job cannot start concurrently.
+    let mut active = lock(&state.job)?;
+    if active
+        .as_ref()
+        .is_some_and(|j| j.snapshot.status == "running")
+    {
+        return Err("処理中はこの操作を実行できません".into());
+    }
+    let db = lock(&state.db)?;
+    let mut job = storage::history(&db)?
+        .into_iter()
+        .find(|job| job.id == job_id)
+        .ok_or("処理履歴が見つかりません")?;
+    let source_path = job
+        .items
+        .iter()
+        .find(|i| i.row.file_id == file_id)
+        .and_then(|i| i.name_restore.as_ref())
+        .map(|r| r.file.path.clone());
+    *lock(&state.plan)? = None;
+    let file = restore::restore(&db, &mut job, &file_id)?;
+    let mut imports = lock(&state.imports)?;
+    for input in imports.values_mut() {
+        if input.file.id == file.id || Some(&input.file.path) == source_path.as_ref() {
+            let id = input.file.id.clone();
+            input.file = file.clone();
+            input.file.id = id;
+        }
+    }
+    if let Some(current) = active.as_mut().filter(|j| j.snapshot.id == job_id) {
+        current.snapshot = job;
+    }
+    Ok(file)
+}
+
 fn publish(app: &tauri::AppHandle, snapshot: &JobSnapshot, persist: bool) -> Result<(), String> {
     let state = app.state::<AppState>();
     // Even if persistence fails, release the UI from the running state.
@@ -649,6 +691,7 @@ fn start_job(
             .iter()
             .cloned()
             .map(|row| ItemResult {
+                name_restore: None,
                 status: if row.enabled && row.errors.is_empty() {
                     "pending"
                 } else {
@@ -761,6 +804,12 @@ async fn run_job(
                             if let Ok(mut imports) = app.state::<AppState>().imports.lock() {
                                 imports.insert(file.id.clone(), Input { file: file.clone() });
                             }
+                            if row.input_path != row.output_path {
+                                snapshot.items[index].name_restore = Some(NameRestore {
+                                    file: file.clone(),
+                                    state: "available".into(),
+                                });
+                            }
                             snapshot.updated_files.push(file);
                         }
                     }
@@ -838,7 +887,8 @@ pub fn run() {
             cancel_job,
             get_job,
             list_history,
-            clear_history
+            clear_history,
+            restore_filename
         ])
         .run(tauri::generate_context!())
         .expect("Animeta could not start");

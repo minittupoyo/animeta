@@ -283,6 +283,28 @@ export const useAppStore = defineStore('animeta', () => {
       notice.value = '設定を保存しました';
     });
   }
+  async function restoreFilename(jobId: string, fileId: string) {
+    if (locked.value) return;
+    await perform(async () => {
+      const previous = history.value
+        .find((j) => j.id === jobId)
+        ?.items.find((i) => i.row.fileId === fileId)?.nameRestore?.file.path;
+      let restored: ImportedFile;
+      try {
+        restored = await api.restoreFilename(jobId, fileId);
+      } finally {
+        invalidate();
+        await refreshHistory();
+      }
+      for (let index = 0; index < files.value.length; index++) {
+        const file = files.value[index]!;
+        if (file.id === restored.id || file.path === previous) {
+          files.value[index] = { ...restored, id: file.id };
+        }
+      }
+      notice.value = '元のファイル名に戻しました';
+    });
+  }
   async function retry(jobValue: JobSnapshot) {
     const failed = jobValue.items.filter((i) =>
       ['failed', 'interrupted', 'cancelled'].includes(i.status),
@@ -369,6 +391,7 @@ export const useAppStore = defineStore('animeta', () => {
     refreshHistory,
     save,
     retry,
+    restoreFilename,
     onJob,
     loadSample,
     invalidate,

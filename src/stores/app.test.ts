@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   history: vi.fn(),
   episodes: vi.fn(),
   import: vi.fn(),
+  restoreFilename: vi.fn(),
 }));
 vi.mock('@/lib/api', () => ({
   desktop: true,
@@ -246,4 +247,65 @@ describe('processing workflow', () => {
     expect(mocks.import).toHaveBeenCalledWith([file.path], false);
     expect(store.preview).toBeNull();
   });
+});
+
+it('restores filenames, keeps assignments and invalidates the preview', async () => {
+  const store = prepared();
+  const original = {
+    ...demoFiles[0]!,
+    path: '/original.mkv',
+    name: 'original.mkv',
+  };
+  const current = {
+    ...original,
+    path: '/processed.mkv',
+    name: 'processed.mkv',
+  };
+  store.files[0] = current;
+  store.history = [
+    {
+      id: 'job',
+      outputMode: 'replace',
+      startedAt: 1,
+      status: 'completed',
+      work: demoWork,
+      items: [
+        {
+          row: {
+            fileId: original.id,
+            inputPath: original.path,
+            inputName: original.name,
+            outputPath: current.path,
+            outputName: current.name,
+            tags: {},
+            errors: [],
+            enabled: true,
+            episodeId: 1,
+          },
+          status: 'success',
+          error: null,
+          nameRestore: { file: current, state: 'available' },
+        },
+      ],
+      currentItem: null,
+      progress: 100,
+    },
+  ];
+  await nextTick();
+  store.preview = { planId: 'old', rows: [] };
+  const assignment = { ...store.assignments[original.id]! };
+  mocks.restoreFilename.mockResolvedValue(original);
+  await store.restoreFilename('job', original.id);
+  expect(store.files[0]?.path).toBe(original.path);
+  expect(store.assignments[original.id]).toEqual(assignment);
+  expect(store.preview).toBeNull();
+  expect(store.notice).toBe('元のファイル名に戻しました');
+});
+it('keeps current file paths on a failed restoration', async () => {
+  const store = prepared();
+  const path = store.files[0]!.path;
+  mocks.restoreFilename.mockRejectedValue('元のファイル名は既に使われています');
+  await store.restoreFilename('job', store.files[0]!.id);
+  expect(store.files[0]!.path).toBe(path);
+  expect(store.error).toContain('既に使われています');
 });
