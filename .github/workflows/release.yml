@@ -52,24 +52,30 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: '1'
         run: bun run tauri build --target x86_64-unknown-linux-gnu --bundles deb,appimage --config src-tauri/tauri.release.conf.json
       - name: Package Linux assets
+        id: package
         run: python3 scripts/release.py linux --bundle-dir src-tauri/target/x86_64-unknown-linux-gnu/release/bundle --dist .release
       - name: Verify deb dependency and application startup
         env:
           WEBKIT_DISABLE_DMABUF_RENDERER: '1'
           LIBGL_ALWAYS_SOFTWARE: '1'
+          NO_AT_BRIDGE: '1'
         run: |
           dpkg-deb --field .release/*.deb Depends | grep -w ffmpeg
           app_data=$(mktemp -d)
           export XDG_DATA_HOME="$app_data"
           export XDG_CONFIG_HOME="$app_data/config"
           status=0
-          timeout 10s xvfb-run -a src-tauri/target/x86_64-unknown-linux-gnu/release/animeta || status=$?
+          timeout 30s dbus-run-session -- xvfb-run -a src-tauri/target/x86_64-unknown-linux-gnu/release/animeta || status=$?
+          echo "Startup check exit status: $status"
+          find "$app_data" -maxdepth 3 -type f -print
           test "$status" -eq 124
           test -f "$app_data/net.minittu.animeta/animeta.sqlite3"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always() && steps.package.outcome == 'success'
         with:
           name: release-linux
           path: .release/*
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
 
@@ -98,6 +104,7 @@ jobs:
         with:
           name: release-windows
           path: .release/*
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
 
@@ -173,6 +180,7 @@ jobs:
         with:
           name: release-assets
           path: .release/*
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
 
