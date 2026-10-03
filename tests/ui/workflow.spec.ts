@@ -231,3 +231,92 @@ test('replacement mode uses original folders and changing modes invalidates prev
     page.getByRole('button', { name: /サンプル実行/ }),
   ).toBeDisabled();
 });
+
+test('history filename restoration confirms scope and updates the restored status', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '処理履歴', exact: true }).click();
+  await page.evaluate(async () => {
+    // Load the application's existing modules through Vite for isolated history fixtures.
+    const storeModule = '/src/stores/app.ts';
+    const apiModule = '/src/lib/api.ts';
+    const { useAppStore } = await import(/* @vite-ignore */ storeModule);
+    const { api } = await import(/* @vite-ignore */ apiModule);
+    const store = useAppStore();
+    const file = {
+      id: 'restore-file',
+      path: '/videos/処理済み.mkv',
+      name: '処理済み.mkv',
+      size: 10,
+      modifiedMs: 1,
+      guessedNumber: null,
+      error: null,
+    };
+    const job = {
+      id: 'restore-job',
+      outputMode: 'replace',
+      startedAt: 1,
+      status: 'completed',
+      work: {
+        annictId: 1,
+        title: '復元テスト',
+        media: 'TV',
+        episodesCount: 1,
+        noEpisodes: false,
+        seasonYear: null,
+        seasonName: null,
+      },
+      items: [
+        {
+          row: {
+            fileId: file.id,
+            inputPath: '/videos/元動画.mkv',
+            inputName: '元動画.mkv',
+            outputPath: file.path,
+            outputName: file.name,
+            tags: {},
+            errors: [],
+            enabled: true,
+            episodeId: null,
+          },
+          status: 'success',
+          error: null,
+          nameRestore: { file, state: 'available' },
+        },
+      ],
+      currentItem: null,
+      progress: 100,
+    };
+    api.history = async () => [job];
+    api.restoreFilename = async () => {
+      job.items[0].nameRestore.state = 'restored';
+      return { ...file, path: '/videos/元動画.mkv', name: '元動画.mkv' };
+    };
+    store.history = [job];
+  });
+  await page.getByRole('button', { name: '復元テストの処理詳細' }).click();
+  const restore = page.getByRole('button', {
+    name: '元のファイル名に戻す',
+    exact: true,
+  });
+  await restore.focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText(
+    'タグや字幕・チャプターの変更は保持されます',
+  );
+  expect(
+    (await new AxeBuilder({ page }).include('[role="dialog"]').analyze())
+      .violations,
+  ).toEqual([]);
+  await page.keyboard.press('Escape');
+  await restore.click();
+  await dialog
+    .getByRole('button', { name: '元のファイル名に戻す', exact: true })
+    .click();
+  await expect(page.getByText('名前を復元済み', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status')).toContainText(
+    '元のファイル名に戻しました',
+  );
+});

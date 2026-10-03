@@ -130,9 +130,17 @@ pub struct Plan {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemResult {
+    #[serde(default)]
+    pub name_restore: Option<NameRestore>,
     pub row: PreviewRow,
     pub status: String,
     pub error: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NameRestore {
+    pub file: ImportedFile,
+    pub state: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

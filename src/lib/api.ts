@@ -79,6 +79,8 @@ export const api = {
     desktop ? call<JobSnapshot | null>('get_job') : Promise.resolve(null),
   history: () =>
     desktop ? call<JobSnapshot[]>('list_history') : Promise.resolve([]),
+  restoreFilename: (jobId: string, fileId: string) =>
+    call<ImportedFile>('restore_filename', { jobId, fileId }),
   clearHistory: () =>
     desktop ? call<void>('clear_history') : Promise.resolve(),
 };
