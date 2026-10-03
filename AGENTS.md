@@ -1,6 +1,6 @@
 # Animeta development
 
-Read [the product specification](docs/specification.md), [the architecture and verification guide](docs/architecture.md), and [the verification record](docs/verification.md) before making changes.
+Read [the product specification](docs/specification.md), [the architecture and verification guide](docs/architecture.md), and [the verification record](docs/verification.md), and [release packaging](docs/releases.md) before making changes.
 
 - Use Vue 3 and TypeScript, shadcn-vue components, Tailwind CSS, and `@fontsource-variable/noto-sans-jp`.
 - Use bun for JavaScript dependencies and scripts; commit `bun.lock`. Rust uses Cargo.

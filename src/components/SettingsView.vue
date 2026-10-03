@@ -147,7 +147,7 @@ async function pickTool(key: 'ffmpegPath' | 'ffprobePath') {
           compact
         >
           <p>
-            タグ付与・字幕削除・チャプター削除にはFFmpegとffprobeが必要です。インストール後、PATHから検出するか実行ファイルを選択してください。「動作確認」で確認できます。リネームのみの場合は不要です。
+            タグ付与・字幕削除・チャプター削除にはFFmpegとffprobeが必要です。同梱版は既定の設定で付属ツールを使用します。非同梱版は別途インストールし、PATHまたは実行ファイルを指定してください。「動作確認」で確認できます。リネームのみの場合は不要です。
           </p>
           <Button
             variant="link"

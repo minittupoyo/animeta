@@ -40,11 +40,36 @@ impl Cancellation {
     }
 }
 pub fn command(executable: &str) -> Command {
-    let mut cmd = Command::new(executable);
+    let app_dir = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf));
+    let mut cmd = Command::new(resolve_executable(executable, app_dir.as_deref()));
     cmd.stdin(Stdio::null()).kill_on_drop(true);
     #[cfg(target_os = "windows")]
     cmd.creation_flags(0x08000000);
     cmd
+}
+
+fn resolve_executable(executable: &str, app_dir: Option<&Path>) -> std::path::PathBuf {
+    // Resolve only the default tool names. An explicitly configured path
+    // always wins, and resolution never depends on the working directory.
+    let tool = match executable {
+        "ffmpeg" | "ffmpeg.exe" => "ffmpeg",
+        "ffprobe" | "ffprobe.exe" => "ffprobe",
+        _ => return executable.into(),
+    };
+    if let Some(dir) = app_dir {
+        let filename = if cfg!(target_os = "windows") {
+            format!("{tool}.exe")
+        } else {
+            tool.to_owned()
+        };
+        let bundled = dir.join("tools").join(filename);
+        if bundled.is_file() {
+            return bundled;
+        }
+    }
+    executable.into()
 }
 pub async fn tool_version(path: &str) -> Result<String, String> {
     if path.trim().is_empty() {
@@ -685,6 +710,40 @@ pub async fn process_item(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bundled_tools_are_resolved_without_overriding_configured_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = dir.path().join("tools");
+        std::fs::create_dir(&tools).unwrap();
+        let suffix = if cfg!(target_os = "windows") {
+            ".exe"
+        } else {
+            ""
+        };
+        for tool in ["ffmpeg", "ffprobe"] {
+            let file = tools.join(format!("{tool}{suffix}"));
+            assert_eq!(resolve_executable(tool, Some(dir.path())), Path::new(tool));
+            std::fs::write(&file, b"fixture").unwrap();
+            assert_eq!(resolve_executable(tool, Some(dir.path())), file);
+            assert_eq!(
+                resolve_executable(&format!("{tool}.exe"), Some(dir.path())),
+                file
+            );
+        }
+        for explicit in [
+            "custom/ffmpeg",
+            "./ffmpeg",
+            "C:\\tools\\ffprobe.exe",
+            "other-tool",
+        ] {
+            assert_eq!(
+                resolve_executable(explicit, Some(dir.path())),
+                Path::new(explicit)
+            );
+        }
+        assert_eq!(resolve_executable("ffmpeg", None), Path::new("ffmpeg"));
+    }
+
     #[tokio::test]
     async fn remux_preserves_nonzero_start_and_chapter_timeline() {
         let settings = Settings {

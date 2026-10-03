@@ -1,0 +1,201 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - run: python3 -m unittest discover -s tests/release -v
+      - id: version
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: python3 scripts/release.py version --ref "$RELEASE_REF" >> "$GITHUB_OUTPUT"
+
+  linux:
+    needs: version
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev librsvg2-dev libayatana-appindicator3-dev patchelf libfuse2 ffmpeg xvfb dbus-x11
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run test
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo clippy --locked --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Build Linux packages
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        run: bun run tauri build --target x86_64-unknown-linux-gnu --bundles deb,appimage --config src-tauri/tauri.release.conf.json
+      - name: Package Linux assets
+        run: python3 scripts/release.py linux --bundle-dir src-tauri/target/x86_64-unknown-linux-gnu/release/bundle --dist .release
+      - name: Verify deb dependency and application startup
+        env:
+          WEBKIT_DISABLE_DMABUF_RENDERER: '1'
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          dpkg-deb --field .release/*.deb Depends | grep -w ffmpeg
+          app_data=$(mktemp -d)
+          export XDG_DATA_HOME="$app_data"
+          export XDG_CONFIG_HOME="$app_data/config"
+          status=0
+          timeout 10s xvfb-run -a src-tauri/target/x86_64-unknown-linux-gnu/release/animeta || status=$?
+          test "$status" -eq 124
+          test -f "$app_data/net.minittu.animeta/animeta.sqlite3"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-linux
+          path: .release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Install cross-build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm gcc-mingw-w64-x86-64 make
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add x86_64-pc-windows-msvc
+          cargo install cargo-xwin --version 0.23.1 --locked
+      - run: bun install --frozen-lockfile
+      - run: bun run tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --no-bundle
+      - name: Build bundled FFmpeg and ffprobe
+        run: bash scripts/build-ffmpeg-windows.sh .release-tools
+      - name: Package both Windows variants
+        run: python3 scripts/release.py windows --exe src-tauri/target/x86_64-pc-windows-msvc/release/animeta.exe --ffmpeg-dir .release-tools --dist .release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-windows
+          path: .release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  verify-windows:
+    needs: windows
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-windows
+          path: assets
+      - name: Ensure WebView2 Runtime is available
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $roots = @('HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients', 'HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients', 'HKCU:\Software\Microsoft\EdgeUpdate\Clients')
+          $runtime = @($roots | ForEach-Object { Get-ChildItem $_ -ErrorAction SilentlyContinue } | Get-ItemProperty | Where-Object { $_.PSChildName -eq '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}' -and $_.pv -and $_.pv -ne '0.0.0.0' })
+          if ($runtime.Count -eq 0) {
+            $installer = Join-Path $env:RUNNER_TEMP 'WebView2Setup.exe'
+            Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $installer
+            $setup = Start-Process $installer -ArgumentList '/silent', '/install' -PassThru -Wait
+            if ($setup.ExitCode -ne 0) { throw "WebView2 installation failed: $($setup.ExitCode)" }
+          }
+      - name: Check both ZIPs and run bundled tools on Windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archives = @(Get-ChildItem assets/*.zip)
+          if ($archives.Count -ne 2) { throw 'Expected both Windows ZIP variants' }
+          foreach ($archive in $archives) {
+            $folder = Join-Path 'unpacked' $archive.BaseName
+            Expand-Archive $archive.FullName $folder
+            $app = @(Get-ChildItem $folder -Recurse -Filter animeta.exe)
+            if ($app.Count -ne 1) { throw 'Missing animeta.exe' }
+            $root = $app[0].Directory.FullName
+            $process = Start-Process $app[0].FullName -PassThru
+            try {
+              if ($process.WaitForExit(10000)) { throw "Animeta exited early: $($process.ExitCode)" }
+            } finally {
+              if (-not $process.HasExited) { Stop-Process -Id $process.Id -Force }
+            }
+            if ($archive.Name -like '*-with-ffmpeg.zip') {
+              $ffmpeg = Join-Path $root 'tools/ffmpeg.exe'
+              $ffprobe = Join-Path $root 'tools/ffprobe.exe'
+              & $ffmpeg -version
+              if ($LASTEXITCODE -ne 0) { throw 'FFmpeg failed to start' }
+              & $ffprobe -version
+              if ($LASTEXITCODE -ne 0) { throw 'ffprobe failed to start' }
+              $video = Join-Path $env:RUNNER_TEMP 'release-smoke.mp4'
+              & $ffmpeg -v error -f lavfi -i 'color=s=64x64:d=1' -f lavfi -i 'sine=duration=1' -c:v mpeg4 -c:a aac -y $video
+              if ($LASTEXITCODE -ne 0) { throw 'Fixture encoding failed' }
+              $probe = (& $ffprobe -v error -show_streams -of json $video | Out-String | ConvertFrom-Json)
+              if ($LASTEXITCODE -ne 0 -or $probe.streams.Count -ne 2) { throw 'Fixture probe failed' }
+              if (-not (Test-Path (Join-Path $root 'ffmpeg/source/ffmpeg-8.1.3.tar.xz'))) { throw 'Missing FFmpeg source' }
+            } elseif (Test-Path (Join-Path $root 'tools')) {
+              throw 'Unbundled variant contains tools'
+            }
+          }
+
+  assemble:
+    needs: [version, linux, windows, verify-windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: release-*
+          path: .release
+          merge-multiple: true
+      - run: python3 scripts/release.py checksums --dist .release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-assets
+          path: .release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: assemble
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-assets
+          path: .release
+      - name: Verify checksums before publication
+        working-directory: .release
+        run: sha256sum --check SHA256SUMS.txt
+      - name: Publish verified release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          flags=()
+          if [[ "$RELEASE_TAG" == *-* ]]; then flags+=(--prerelease); fi
+          gh release create "$RELEASE_TAG" .release/* --verify-tag --title "Animeta $RELEASE_TAG" --generate-notes "${flags[@]}"

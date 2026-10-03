@@ -9,4 +9,4 @@ Animeta独自のコードは[MIT License](LICENSE)で公開しています。依
 | Lucideアイコン | [ISC](licenses/lucide-ISC.txt) |
 | Noto Sans JP | [SIL Open Font License 1.1](licenses/noto-sans-jp-OFL.txt) |
 
-その他の依存関係は `bun.lock` と `src-tauri/Cargo.lock` に記録しています。各パッケージのライセンス表記を参照してください。FFmpeg・ffprobeは本リポジトリと実行ファイルには同梱していません。
+その他の依存関係は `bun.lock` と `src-tauri/Cargo.lock` に記録しています。各パッケージのライセンス表記を参照してください。FFmpeg・ffprobeのバイナリは本リポジトリには含めていません。Windows同梱版のリリースZIPには、別プロセスとして実行するFFmpeg・ffprobeと、対応するソース・ライセンス・ビルド手順を含めます。

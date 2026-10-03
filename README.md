@@ -4,7 +4,11 @@ Annictの作品・エピソード情報を使って、アニメのMP4・MKVを�
 
 Vue 3 / TypeScript / shadcn-vue / Tailwind CSS / Noto Sans JP Variable と、Tauri 2 / Rustを使用しています。
 
-## 起動
+## ダウンロード
+
+[GitHub Releases](https://github.com/minittupoyo/animeta/releases)から、Windows x64（FFmpeg同梱／非同梱ZIP）、Linux x86_64（AppImage／deb）を取得できます。公開済みリリースがない場合はソースからビルドしてください。配布形式・リリース手順は[リリース文書](docs/releases.md)を参照してください。
+
+## 開発用の起動
 
 bun、Rust、お使いのOSの[Tauri開発用依存関係](https://v2.tauri.app/start/prerequisites/)を用意してください。
 
@@ -13,7 +17,7 @@ bun install
 bun run tauri dev
 ```
 
-動画へのタグ付与には、別途FFmpegとffprobeが必要です。PATHから検出するか、設定画面で実行ファイルを選択できます。タグ付与・字幕削除・チャプター削除を行わないリネーム・コピー処理では外部ツールは不要です。
+動画へのタグ付与にはFFmpegとffprobeが必要です。Windowsの同梱版は付属ツールを既定設定で使用します。非同梱版・Linux版は別途用意し、PATHまたは設定画面で実行ファイルを指定してください。タグ付与・字幕削除・チャプター削除を行わないリネーム・コピー処理では外部ツールは不要です。
 
 Annictの[個人用アクセストークン](https://annict.com/settings/apps)を読み取り権限で作成し、設定画面から接続してください。トークンはOSの資格情報ストアに保存します。利用できない環境では起動中のみ保持します。
 
@@ -73,7 +77,7 @@ bun run tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --no-bun
 
 ## CI
 
-GitHub Actionsで型チェック、フロントエンド・UI・Rustテスト、ビルドを実行します。Windows向けの `cargo-xwin` ビルドはActionsの「Windows build」から手動実行でき、生成した実行ファイルをartifactとして取得できます。
+GitHub Actionsで型チェック、フロントエンド・UI・Rustテスト、ビルドを実行します。Windows向けの `cargo-xwin` ビルドはActionsの「Windows build」から手動実行でき、生成した実行ファイルをartifactとして取得できます。タグから両OSの配布物を公開する「Release」ワークフローも用意しています。ブランチでの手動実行では公開せず、配布物をartifactとして生成します。
 
 ## ライセンス
 
@@ -84,4 +88,5 @@ GitHub Actionsで型チェック、フロントエンド・UI・Rustテスト、
 - [仕様書](docs/specification.md)
 - [アーキテクチャと検証手順](docs/architecture.md)
 - [今回の検証結果・未検証項目](docs/verification.md)
+- [リリース手順](docs/releases.md)
 - [開発規約](AGENTS.md)

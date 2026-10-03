@@ -2,7 +2,7 @@
 
 ## Purpose and supported environment
 
-Animeta is a Japanese desktop utility that renames anime videos and embeds Annict metadata. Target platforms are Windows, macOS, and Linux. Supported input/output containers are MP4 and MKV; the container and retained encoded streams are not converted. Users install FFmpeg and ffprobe independently. OAuth, Annict writes, folder monitoring, sidecars, artwork, transcoding, automatic updates, and signed distribution are outside v0.1.
+Animeta is a Japanese desktop utility that renames anime videos and embeds Annict metadata. Target platforms are Windows, macOS, and Linux. Supported input/output containers are MP4 and MKV; the container and retained encoded streams are not converted. Windows release ZIPs offer bundled and unbundled FFmpeg/ffprobe variants; Linux packages use external tools. OAuth, Annict writes, folder monitoring, sidecars, artwork, transcoding, automatic updates, and signed distribution are outside v0.1. Release packaging produces Windows ZIPs and Linux AppImage/deb packages; see [release documentation](releases.md).
 
 ## Workflow
 

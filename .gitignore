@@ -38,3 +38,8 @@ dist-ssr
 *.mp4
 *.mkv
 *.partial
+
+# Release staging
+/.release/
+/.release-tools/
+__pycache__/
