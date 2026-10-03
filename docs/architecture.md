@@ -56,7 +56,7 @@ Acceptance: successfully process Japanese-path MP4/MKV with original bytes uncha
 
 The default branch is `main`. Commit Bun and Cargo lockfiles; local app data, credentials, media, build outputs, and test reports are ignored. `.gitattributes` keeps text files in LF and `.editorconfig` aligns editor settings. Project code uses MIT; retained third-party notices are linked from the README.
 
-`.github/workflows/ci.yml` runs frontend checks/build/UI tests and Rust format/Clippy/tests on pushes to main, pull requests, and manual runs. Rust CI installs FFmpeg so media tests run rather than skip. `.github/workflows/windows.yml` is manual: build with cargo-xwin for x86_64-pc-windows-msvc and retain the executable as a 14-day artifact. Those two workflows do not publish releases. `.github/workflows/release.yml` handles versioned tag releases and branch-only manual packaging checks; see [release packaging](releases.md). Workflow actions are pinned to commit SHAs and use read-only repository permissions.
+`.github/workflows/ci.yml` runs frontend checks/build/UI tests and Rust format/Clippy/tests on pushes to main, pull requests, and manual runs. Rust CI installs FFmpeg so media tests run rather than skip. `.github/workflows/windows.yml` is manual: build with cargo-xwin for x86_64-pc-windows-msvc and retain the executable as a 14-day artifact. Those two workflows do not publish releases. `.github/workflows/release.yml` handles versioned tag releases and branch-only manual packaging checks; see [release packaging](releases.md). Workflow actions are pinned to commit SHAs. Build and verification jobs use read-only repository permissions; only the release publish job has contents:write.
 
 ## Latest verification
 

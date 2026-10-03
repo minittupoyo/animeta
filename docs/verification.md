@@ -17,7 +17,7 @@
 - MP4のQuickTimeチャプター回帰テストを追加。チャプタートラックの言語 `und` が再生成で `eng` になるケースを確認し、映像・音声の符号化済みパケットのハッシュ、元動画のバイト列、チャプターのタイトル・時刻、Annictタグを検証。字幕や一般データの欠落、チャプター改変は引き続き拒否。提供された動画そのもの・Windowsでの同動画の処理は未検証です。
 - `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`: 成功。
 - フロントエンドの本番ビルド、LinuxのTauriリリースビルド（`--no-bundle`）: 成功。
-- cargo-xwin 0.23.1による `x86_64-pc-windows-msvc` のTauriリリースビルド（`--no-bundle`）: 成功。フロントエンドも再ビルドし、`file` / `llvm-readobj` でPE32+・AMD64・Windows GUI形式を確認。出力は `src-tauri/target/x86_64-pc-windows-msvc/release/animeta.exe`（15,003,136 bytes）。説明をダイアログへ整理した最新UI、MP4チャプター処理の修正、自動エピソードマッチング、字幕・チャプター削除、コピー／上書きの選択、保持トラックに基づく再生時間の検証、元タイムラインの保持を含めて再ビルド済み。SDKライブラリのPDB不足によるLNK4099警告は出ていますが、リンクは成功しています。
+- cargo-xwin 0.23.1による `x86_64-pc-windows-msvc` のTauriリリースビルド（`--no-bundle`）: 成功。フロントエンドも再ビルドし、`file` / `llvm-readobj` でPE32+・AMD64・Windows GUI形式を確認。出力は `src-tauri/target/x86_64-pc-windows-msvc/release/animeta.exe`（15,004,672 bytes）。説明をダイアログへ整理した最新UI、MP4チャプター処理の修正、自動エピソードマッチング、字幕・チャプター削除、コピー／上書きの選択、保持トラックに基づく再生時間の検証、元タイムラインの保持、同梱ツールの検出を含めて再ビルド済み。SDKライブラリのPDB不足によるLNK4099警告は出ていますが、リンクは成功しています。
 - Linuxの仮想X画面でネイティブアプリを起動し、初期化・アプリ用SQLiteの作成を確認。検証は隔離したアプリデータディレクトリと資格情報ストア未接続の環境で実施。
 
 この環境ではFFmpegや一部のブラウザ依存ライブラリが未インストールだったため、検証専用の一時領域に用意しました。アプリにはこれらのパスやバイナリを同梱していません。
@@ -36,11 +36,11 @@
 - Windows同梱ツールの検出とカスタムパス優先をRustでテスト。Rust28件、フロントエンド14件、型チェック、fmt・Clippy・フロントエンドビルドが成功。
 - 配布スクリプトのテスト3件が成功。タグ不一致、Windowsの両ZIP構成・ソース・ライセンス、欠落したツール・Linuxパッケージを確認。
 - 公式署名を確認したFFmpeg 8.1.3のソースを固定SHA-256で照合し、Windows向けクロスビルドに成功。OS/UCRT以外の追加DLLへの依存がないことをimport tableで確認。
-- Release公開とGitHub上の新しい配布ワークフローの結果は、実行結果を別途確認する必要があります。
+- [Releaseの手動検証](https://github.com/minittupoyo/animeta/actions/runs/37092176884): 全ビルド・検証・artifact集約が成功。Ubuntu 22.04でAppImage / debを作成し、FFmpeg・WebKitGTK・GTKの依存関係と仮想画面・隔離D-Bus環境での起動、SQLite作成を確認。Windows Server 2022で両ZIPのアプリ起動、同梱FFmpeg 8.1.3 / ffprobeの起動、MP4生成・解析を確認。最終artifactをダウンロードし、全配布物のSHA-256を照合。タグからのGitHub Release公開は未実行。
 
 ## 未検証・保証範囲
 
-- Windowsの実機操作、macOSのビルド・実機操作は未検証です。Windows向けにはLinuxからのクロスビルドを確認済みです。OS別の資格情報ストアはそれぞれのバックエンドを設定済みですが、実際の保存・削除には各OSでの確認が必要です。
+- Windowsのユーザー実機での操作、macOSのビルド・実機操作は未検証です。Windows向けにはLinuxからのクロスビルドとCIのWindows環境でのアプリ起動・同梱ツール実行を確認済みです。OS別の資格情報ストアはそれぞれのバックエンドを設定済みですが、実際の保存・削除には各OSでの確認が必要です。
 - 本物のAnnictトークンによる認証・検索は未検証です。クエリはAnnictの公開ソースに合わせ、HTTPモックで応答処理を検証しています。
 - OSの資格情報ストアへの永続保存は、この検証環境では未検証です。サービスが利用できない場合のセッション保持を実装しています。
 - ネイティブアプリ上での全操作の自動化は行っていません。画面の操作テストはChromiumで実施し、メディア処理はRustの結合テストで確認しています。
@@ -61,6 +61,6 @@ bun run tauri build --no-bundle
 bun run tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --no-bundle
 ```
 
-Windows実行ファイルのSHA-256: `28b810e71a0d7878b631cc44990fd4debb4a312c3a35f608b0cdcd7882b7a47f`。
+Windows実行ファイルのSHA-256: `bd5c1a05ed305f7781793d4cc51fa1fd5a69b35854871a2273f6e1dfab48a963`。
 
 UIのスクリーンショットはPlaywright実行時に `test-results/animeta-light.png` と `test-results/animeta-dark.png` に生成されます。生成物はGitの管理対象外です。
