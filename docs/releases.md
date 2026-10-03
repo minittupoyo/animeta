@@ -32,8 +32,8 @@ APPIMAGE_EXTRACT_AND_RUN=1 ./animeta-VERSION-linux-x86_64.AppImage
 
 ```sh
 # 現在のバージョンの例。実際に公開するときに実行してください。
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 両OSのビルドとWindows上の起動・付属ツール検証、Linuxの起動検証に成功した後、配布物をまとめ、SHA-256を生成してGitHub Releaseへ公開します。`v0.1.0-rc.1` のようなハイフン付きバージョンはprereleaseになります。自動生成のリリースノートを使用します。失敗時にはReleaseを作成しません。同名Releaseがすでに存在する場合は失敗し、既存の配布物を置き換えません。
