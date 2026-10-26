@@ -3,11 +3,18 @@ use regex::Regex;
 use std::{collections::BTreeMap, path::Path, sync::LazyLock};
 
 static EPISODE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)第\s*([0-9]{1,3})\s*話|(?:^|[^a-z0-9])s[0-9]{1,2}e([0-9]{1,3})|(?:^|[^a-z0-9])ep?\s*([0-9]{1,3})").unwrap()
+    Regex::new(r"(?i)第\s*([0-9]+(?:\.[0-9]+)?)\s*[話回]|(?:^|[^a-z0-9])s[0-9]{1,2}[ ._-]*e\s*([0-9]+(?:\.[0-9]+)?)|(?:^|[^a-z0-9])(?:episode|ep|e)[ ._-]*([0-9]+(?:\.[0-9]+)?)|[#＃]\s*([0-9]+(?:\.[0-9]+)?)|(?:^|[^a-z0-9])([0-9]+(?:\.[0-9]+)?)\s*話").unwrap()
 });
 static RELEASE_NUMBER_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:^|\s[-–—]\s*)([0-9]{1,3})(?:$|\s|[-–—])|\[([0-9]{1,3})\]").unwrap()
+    Regex::new(r"(?i)(?:^|\s[-–—]\s*|_)([0-9]+(?:\.[0-9]+)?)(?:v[0-9]+)?|\[\s*([0-9]+(?:\.[0-9]+)?)(?:v[0-9]+)?\s*\]|\(\s*([0-9]+(?:\.[0-9]+)?)(?:v[0-9]+)?\s*\)|【\s*([0-9]+(?:\.[0-9]+)?)(?:v[0-9]+)?\s*】").unwrap()
 });
+static REVISION_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^(v[0-9]+)(?:$|[^a-z0-9])").unwrap());
+static RANGE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^\s*(?:話|回)?\s*[-–—~〜～+&,]\s*(?:(?:s[0-9]+)?e(?:p)?\s*|第\s*)?[0-9]")
+        .unwrap()
+});
+
 pub fn infer_number(name: &str) -> Option<i64> {
     // Normalize common full-width filename characters without touching paths.
     let normalized: String = name
@@ -20,36 +27,44 @@ pub fn infer_number(name: &str) -> Option<i64> {
         .collect();
     let name = Path::new(&normalized).file_stem()?.to_str()?;
     let mut numbers = Vec::new();
-    for pattern in [&*EPISODE_PATTERN, &*RELEASE_NUMBER_PATTERN] {
+    for (explicit, pattern) in [(true, &*EPISODE_PATTERN), (false, &*RELEASE_NUMBER_PATTERN)] {
         for capture in pattern.captures_iter(name) {
             let number = (1..capture.len()).find_map(|i| capture.get(i)).unwrap();
             let tail = &name[number.end()..];
-            let mut chars = tail.chars();
-            let first = chars.next();
-            // Reject partial numbers, fractional episodes and episode ranges.
-            let mut trimmed_suffix = tail.trim_start().chars();
-            if matches!(trimmed_suffix.next(), Some('-' | '–' | '—' | '~' | '〜'))
-                && trimmed_suffix
-                    .as_str()
-                    .trim_start()
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_ascii_digit())
+            // Consume the entire numeric token: never turn EP1000 or EP12.5 into EP100/12.
+            let value = number.as_str().parse::<i64>().ok();
+            if number.as_str().len() > 3 || value.is_none() {
+                if explicit || number.as_str().contains('.') {
+                    return None;
+                }
+                continue;
+            }
+            let value = value?;
+            // Bare release numbers may also be technical metadata (480/720 pixels,
+            // H.264/H.265). Explicit episode markers can legitimately use these numbers.
+            if !explicit && matches!(value, 264 | 265 | 480 | 576 | 720) {
+                continue;
+            }
+            let revision = REVISION_PATTERN.captures(tail);
+            let range_tail = revision
+                .as_ref()
+                .and_then(|capture| capture.get(1))
+                .map_or(tail, |version| &tail[version.end()..]);
+            if RANGE_PATTERN.is_match(range_tail) {
+                return None;
+            }
+            if tail
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphanumeric())
+                && !REVISION_PATTERN.is_match(tail)
             {
                 return None;
             }
-            if first.is_some_and(|c| c.is_ascii_alphanumeric())
-                || (matches!(first, Some('.' | '-' | '–' | '—' | '~' | '〜'))
-                    && chars.next().is_some_and(|c| c.is_ascii_digit()))
-            {
-                return None;
-            }
-            if let Ok(value) = number.as_str().parse::<i64>() {
-                numbers.push(value);
-            }
+            numbers.push(value);
         }
     }
-    numbers.sort();
+    numbers.sort_unstable();
     numbers.dedup();
     if numbers.len() == 1 {
         numbers.first().copied()
@@ -294,6 +309,60 @@ mod tests {
             ("作品 [01] [02].mkv", None),
         ] {
             assert_eq!(infer_number(name), expected, "{name}");
+        }
+    }
+    #[test]
+    fn expanded_episode_formats() {
+        for name in [
+            "作品 Episode 012.mkv",
+            "作品 episode_12.mkv",
+            "作品 #12.mp4",
+            "作品 ＃１２.mp4",
+            "作品 12話.mkv",
+            "作品 第12回.mkv",
+            "作品 S02E12v2.mkv",
+            "作品 S02 E12.mkv",
+            "作品 EP12v3.mkv",
+            "作品 - 12v2 [1080p].mkv",
+            "作品_12_1080p.mkv",
+            "作品 (12).mkv",
+            "作品 （１２）.mkv",
+            "作品【12】.mkv",
+            "作品 [ 12 ].mkv",
+            "12.mkv",
+            "作品 EP12 第12話.mkv",
+            "作品 - 12 [720] [2026].mkv",
+        ] {
+            assert_eq!(infer_number(name), Some(12), "{name}");
+        }
+    }
+
+    #[test]
+    fn reject_ambiguous_or_non_episode_numbers() {
+        for name in [
+            "作品 Episode 12.5.mkv",
+            "作品 第12.5話.mkv",
+            "作品 [12.5].mkv",
+            "作品 EP12v2-13.mkv",
+            "作品 EP12+13.mkv",
+            "作品 EP12～13.mkv",
+            "作品 第12話〜第13話.mkv",
+            "作品 S01E12-E13.mkv",
+            "作品 EP12,13.mkv",
+            "作品 EP12&13.mkv",
+            "作品 EP1000.mkv",
+            "作品 EP12preview.mkv",
+            "作品 EP12v2preview.mkv",
+            "作品_1080p.mkv",
+            "作品 [720].mkv",
+            "作品 (2026).mkv",
+            "作品_265.mkv",
+            "作品_12_13.mkv",
+            "作品 [12] (13).mkv",
+            "作品 #12 EP13.mkv",
+            "作品 12話 第13話.mkv",
+        ] {
+            assert_eq!(infer_number(name), None, "{name}");
         }
     }
     #[test]
